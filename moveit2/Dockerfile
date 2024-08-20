@@ -19,7 +19,7 @@
 #   VCS_REF     - The git revision of the Space ROS source code (no default value).
 #   VERSION     - The version of Space ROS (default: "preview")
 
-FROM osrf/space-ros:latest
+FROM osrf/space-ros:core
 
 # Define arguments used in the metadata definition
 ARG VCS_REF
@@ -38,12 +38,8 @@ LABEL org.label-schema.vcs-ref=${VCS_REF}
 # Disable prompting during package installation
 ARG DEBIAN_FRONTEND=noninteractive
 
-# Clone all space-ros sources
-RUN mkdir ${SPACEROS_DIR}/src \
-  && vcs import ${SPACEROS_DIR}/src < ${SPACEROS_DIR}/exact.repos
-
 # Define key locations
-ENV MOVEIT2_DIR=${HOME_DIR}/moveit2
+ENV MOVEIT2_DIR=${HOME}/moveit2
 
 # Make sure the latest versions of packages are installed
 # Using Docker BuildKit cache mounts for /var/cache/apt and /var/lib/apt ensures that
@@ -54,7 +50,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
   --mount=type=cache,target=/var/lib/apt,sharing=locked \
   sudo apt-get dist-upgrade -y
-RUN rosdep update
+RUN sudo rosdep init && rosdep update
 
 # Install the various build and test tools
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
@@ -91,9 +87,10 @@ RUN python3 -m pip install -U \
 
 # Get the MoveIt2 source code
 WORKDIR ${HOME_DIR}
-RUN sudo git clone https://github.com/ros-planning/moveit2.git -b ${ROS_DISTRO} moveit2/src
+RUN mkdir -p ${MOVEIT2_DIR}/src
+RUN git clone https://github.com/ros-planning/moveit2.git -b ${ROS_DISTRO} ${MOVEIT2_DIR}/src
 RUN cd ${MOVEIT2_DIR}/src \
-  && sudo git clone https://github.com/ros-planning/moveit2_tutorials.git -b ${ROS_DISTRO}
+  && git clone https://github.com/ros-planning/moveit2_tutorials.git -b ${ROS_DISTRO}
 
 # Update the ownership of the source files (had to use sudo above to work around
 # a possible inherited 'insteadof' from the host that forces use of ssh
@@ -128,7 +125,7 @@ RUN sudo chown -R ${USERNAME}:${USERNAME} ${MOVEIT2_DIR}
 # Install system dependencies
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
   --mount=type=cache,target=/var/lib/apt,sharing=locked \
-  /bin/bash -c 'source ${SPACEROS_DIR}/install/setup.bash' \
+  /bin/bash -c 'source ${SPACEROS_DIR}/setup.bash' \
  && rosdep install --from-paths src --ignore-src --rosdistro ${ROS_DISTRO} -r -y --skip-keys "console_bridge generate_parameter_library fastcdr fastrtps rti-connext-dds-5.3.1 urdfdom_headers rmw_connextdds ros_testing rmw_connextdds rmw_fastrtps_cpp rmw_fastrtps_dynamic_cpp composition demo_nodes_py lifecycle rosidl_typesupport_fastrtps_cpp rosidl_typesupport_fastrtps_c ikos diagnostic_aggregator diagnostic_updater joy qt_gui rqt_gui rqt_gui_py"
 
 # Apply a patch to octomap_msgs to work around a build issue
@@ -136,7 +133,7 @@ COPY --chown=${USERNAME}:${USERNAME} octomap_fix.diff ./src/octomap_msgs
 RUN cd src/octomap_msgs && git apply octomap_fix.diff
 
 # Build MoveIt2
-RUN /bin/bash -c 'source ${SPACEROS_DIR}/install/setup.bash \
+RUN /bin/bash -c 'source ${SPACEROS_DIR}/setup.bash \
   && colcon build --cmake-args -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON --event-handlers desktop_notification- status-'
 
 # Add a couple sample GUI apps for testing
